@@ -1,0 +1,16 @@
+graph_name,method,run_id,found_optimum,final_cost,best_cost,best_size,best_is_valid,first_optimum_iteration,unique_states_visited,valid_sample_fraction
+graph_5,classical_random,0,True,-3.0,-3.0,3,True,7.0,3,1.0
+graph_5,classical_random,1,True,-2.0,-3.0,3,True,4.0,6,1.0
+graph_5,classical_random,2,True,-2.0,-3.0,3,True,2.0,6,1.0
+graph_5,classical_random,3,True,-2.0,-3.0,3,True,18.0,6,1.0
+graph_5,classical_random,4,True,-2.0,-3.0,3,True,4.0,6,1.0
+graph_5,classical_warm,0,True,-3.0,-3.0,3,True,0.0,4,1.0
+graph_5,classical_warm,1,True,-3.0,-3.0,3,True,0.0,2,1.0
+graph_5,classical_warm,2,True,-2.0,-3.0,3,True,0.0,4,1.0
+graph_5,classical_warm,3,True,-2.0,-3.0,3,True,0.0,4,1.0
+graph_5,classical_warm,4,True,-3.0,-3.0,3,True,0.0,6,1.0
+graph_5,qemcmc,0,True,-3.0,-3.0,3,True,2.0,4,0.9607843137254902
+graph_5,qemcmc,1,True,-2.0,-3.0,3,True,17.0,9,0.9607843137254902
+graph_5,qemcmc,2,True,-3.0,-3.0,3,True,13.0,8,1.0
+graph_5,qemcmc,3,True,2.0,-3.0,3,True,35.0,8,0.8431372549019608
+graph_5,qemcmc,4,True,-3.0,-3.0,3,True,14.0,6,0.8823529411764706
