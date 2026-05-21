@@ -406,3 +406,9 @@ Une solution complète devrait :
 Un bon résultat devrait obtenir une accuracy nettement supérieure au hasard sur l'ensemble de test, supérieur à 90%.
 
 La solution devrait aussi expliquer les choix principaux du modèle : méthode de réduction de dimension, nombre de qubits, encodage des données, ansatz utilisée et optimiseur choisi.
+
+## Ressources supplémentaires
+
+- [Cours sur l'apprentissage machine quantique](https://quantum.cloud.ibm.com/learning/en/courses/quantum-machine-learning/introduction)
+- [Documentation PCA de sklearn](https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html)
+- [Documentation de torch.nn.Conv2d](https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html)
