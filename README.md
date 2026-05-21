@@ -11,41 +11,19 @@ Les énoncés de défis sont organisés dans `/challenges`, dans un format Markd
 > [!IMPORTANT]
 > La configuration actuelle est prévue pour `uv`. Utilisez `uv sync` pour installer les dépendances et `uv run` pour exécuter les commandes du projet.
 
-### Configuration avec [`uv`](https://docs.astral.sh/uv/)
+### Installation avec [`uv`](https://docs.astral.sh/uv/)
 
-<details>
-<summary>Instructions pour uv</summary>
-
-#### 1) Installer les dépendances
+Pour installer les dépendances de tous les défis, utilisez la commande suivante à la racine du projet :
 
 ```bash
-uv sync --group dev
+uv sync --all-packages
 ```
 
-#### 2) Lancer les hooks qualité
+Pour installer les dépendances d'un défi spécifique, utilisez la commande suivante en remplaçant le nom du défi par celui que vous souhaitez :
 
 ```bash
-uv tool install pre-commit
-uvx pre-commit install
-uvx pre-commit run --all-files
+uv sync --package <nom_du_défi>
 ```
-
-#### 3) Exécuter les tests
-
-```bash
-uv run pytest tests/
-```
-
-#### 4) Lancer le script d'exemple
-
-```bash
-uv run python src/main.py
-```
-
-> [!TIP]
-> Si vous préférez ne pas installer `pre-commit` globalement, vous pouvez remplacer `uvx pre-commit ...` par une commande équivalente dans un environnement où `pre-commit` est déjà installé.
-
-</details>
 
 ## Ressources supplémentaires
 
