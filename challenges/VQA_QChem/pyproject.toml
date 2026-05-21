@@ -1,0 +1,12 @@
+[project]
+name = "vqa-qchem"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.13.5",
+    "fsspec>=2026.4.0",
+    "h5py>=3.16.0",
+    "matplotlib>=3.10.9",
+    "pennylane>=0.45.0",
+    "qiskit>=2.4.1",
+]
