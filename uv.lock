@@ -469,6 +469,15 @@ wheels = [
 ]
 
 [[package]]
+name = "docplex"
+version = "2.32.264"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b4/02/7aec9042e1727b9f8fd745fa799bc8b4fd76e4db57f05a81eb676ead401b/docplex-2.32.264.tar.gz", hash = "sha256:4e2b29b3559e702bcfe12c6747428c752b0c39a508a81addf05edaab36b76bd8", size = 663972, upload-time = "2026-04-01T08:04:10.512Z" }
+
+[[package]]
 name = "executing"
 version = "2.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1710,6 +1719,23 @@ wheels = [
 ]
 
 [[package]]
+name = "qiskit-optimization"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "docplex" },
+    { name = "networkx" },
+    { name = "numpy" },
+    { name = "qiskit" },
+    { name = "scipy" },
+    { name = "setuptools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c9/e0/46e635e6d447f08ef9d9b2e89d129454ec2db3a2327237cea2bd3e8c4878/qiskit_optimization-0.7.0.tar.gz", hash = "sha256:059e9329c647534965e68d8c52de1b02828635c525c210aa0730e486f9c5a686", size = 219471, upload-time = "2025-08-20T14:04:16.96Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ba/a1/78908508b73f0e9f638abeace753c07439f92d3eb2fda36706f8e08e73d6/qiskit_optimization-0.7.0-py3-none-any.whl", hash = "sha256:2082390c2b89cdf2083f6f790486797a0e188016e0dd31c8a32b27f6913864dc", size = 237135, upload-time = "2025-08-20T14:04:15.478Z" },
+]
+
+[[package]]
 name = "qnn-mnist"
 version = "0.1.0"
 source = { virtual = "challenges/QNN_MNIST" }
@@ -2141,6 +2167,7 @@ source = { virtual = "challenges/VQA-Knapsack" }
 dependencies = [
     { name = "matplotlib" },
     { name = "qiskit" },
+    { name = "qiskit-optimization" },
     { name = "scipy" },
 ]
 
@@ -2148,6 +2175,7 @@ dependencies = [
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "qiskit", specifier = ">=2.4.1" },
+    { name = "qiskit-optimization", specifier = ">=0.7.0" },
     { name = "scipy", specifier = ">=1.17.1" },
 ]
 
