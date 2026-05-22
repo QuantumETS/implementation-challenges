@@ -12,5 +12,14 @@ dev = ["pytest>=9.0.3", "ruff>=0.15.13"]
 [tool.pytest]
 pythonpath = ["src"]
 
+[tool.ruff]
+extend-exclude = ["*.ipynb"]
+
+[tool.ruff.lint]
+select = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
 [tool.uv.workspace]
 members = ["challenges/**"]
