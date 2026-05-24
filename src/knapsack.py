@@ -9,6 +9,7 @@ script-style entrypoint for local demonstrations.
 from dataclasses import dataclass
 import itertools
 
+import matplotlib.pyplot as plt
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import SparsePauliOp
@@ -17,7 +18,7 @@ from qiskit_optimization.converters import QuadraticProgramToQubo
 from qiskit_optimization.applications import Knapsack
 from qiskit.circuit.library import QAOAAnsatz
 from qiskit.primitives import BaseEstimatorV2, StatevectorEstimator
-from scipy.optimize import minimize
+from scipy.optimize import minimize, OptimizeResult
 
 import logging
 from argparse import ArgumentParser
@@ -29,6 +30,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SEED = None  # Global seed for reproducibility, can be set from command-line arguments
+OBJECTIVE_FUNC_VALUES = []
 
 
 @dataclass
@@ -47,12 +49,7 @@ class KnapsackInstance:
     capacity: int
 
 
-VALUES = [8, 5, 6, 9, 4, 7, 3, 10]
-WEIGHTS = [4, 3, 5, 6, 2, 4, 1, 7]
-CAPACITY = 12
-
-
-def cost_function(x: list[int]) -> float:
+def cost_function(x: list[int], knapsack_instance: KnapsackInstance) -> float:
     """Compute the (negative) total value for a binary selection vector.
 
     The function returns the negative sum of selected item values so that a
@@ -60,18 +57,21 @@ def cost_function(x: list[int]) -> float:
 
     Args:
         x: Binary list where 1 indicates the item is selected and 0 otherwise.
+        knapsack_instance: The knapsack instance containing item values and capacity.
 
     Returns:
         The cost as a float (negative total value).
     """
     cost = 0
     for i in range(len(x)):
-        cost -= x[i] * VALUES[i]
+        cost -= x[i] * knapsack_instance.values[i]
 
     return cost
 
 
-def penalty_function(x: list[int], penalty_value: float = sum(VALUES)) -> float:
+def penalty_function(
+    x: list[int], knapsack_instance: KnapsackInstance, penalty_value: float = None
+) -> float:
     """Compute a quadratic penalty for capacity violation.
 
     The penalty is applied when the total weight of the selected items
@@ -80,32 +80,41 @@ def penalty_function(x: list[int], penalty_value: float = sum(VALUES)) -> float:
 
     Args:
         x: Binary list where 1 indicates the item is selected.
+        knapsack_instance: The knapsack instance containing item weights and capacity.
         penalty_value: Scaling factor for the penalty (defaults to sum of
             global `VALUES`).
 
     Returns:
         The penalty term as a float.
     """
+    if penalty_value is None:
+        penalty_value = sum(knapsack_instance.values)
+
     penalty = penalty_value * np.square(
-        max(0, sum(x[i] * WEIGHTS[i] for i in range(len(x))) - CAPACITY)
+        max(
+            0,
+            sum(x[i] * knapsack_instance.weights[i] for i in range(len(x)))
+            - knapsack_instance.capacity,
+        )
     )
 
     return penalty
 
 
-def objective_function(x: list[int]) -> float:
+def objective_function(x: list[int], knapsack_instance: KnapsackInstance) -> float:
     """Compute the combined objective (cost + penalty) for a selection.
 
     Args:
         x: Binary selection list.
+        knapsack_instance: The knapsack instance containing item values and capacity.
 
     Returns:
         The scalar objective value (cost + penalty).
     """
-    return cost_function(x) + penalty_function(x)
+    return cost_function(x, knapsack_instance) + penalty_function(x, knapsack_instance)
 
 
-def bruteforce(knapsack_instance: KnapsackInstance) -> list[int]:
+def bruteforce(knapsack_instance: KnapsackInstance) -> tuple[list[int], float]:
     """Brute-force search for the optimal selection vector.
 
     This helper function exhaustively evaluates all possible binary selection
@@ -115,7 +124,7 @@ def bruteforce(knapsack_instance: KnapsackInstance) -> list[int]:
         knapsack_instance: The knapsack instance to solve.
 
     Returns:
-        The optimal binary selection vector as a list of integers (0 or 1).
+        The optimal binary selection vector as a list of integers (0 or 1) and its corresponding objective function value.
     """
     bestValue = float("inf")
     bestArray = []
@@ -123,13 +132,13 @@ def bruteforce(knapsack_instance: KnapsackInstance) -> list[int]:
     for test in itertools.product([0, 1], repeat=len(knapsack_instance.values)):
         logger.debug(f"Testing selection: {test}")
         test = list(test)
-        newValue = objective_function(test)
+        newValue = objective_function(test, knapsack_instance)
         if newValue < bestValue:
             bestValue = newValue
             bestArray = test.copy()
             logger.debug(f"New best selection: {bestArray} with value {bestValue}")
 
-    return bestArray
+    return bestArray, bestValue
 
 
 def cost_function_estimator(
@@ -153,10 +162,12 @@ def cost_function_estimator(
     Returns:
         The estimated cost function value as a float.
     """
-    pub = (ansatz, hamiltonian, params)
+    pub = (ansatz, [hamiltonian], [params])
 
     result = estimator.run(pubs=[pub]).result()
     energy = result[0].data.evs
+
+    OBJECTIVE_FUNC_VALUES.append(energy)
 
     return energy
 
@@ -220,6 +231,33 @@ def _x0_parameters(num_params) -> np.ndarray:
     return params
 
 
+def _pretty_result(result: OptimizeResult) -> str:
+    """Format the optimization result for logging.
+
+    Args:
+        result: The optimization result from scipy.optimize.minimize.
+
+    Returns:
+        A formatted string summarizing the optimization outcome.
+    """
+    return (
+        f"Success: {result.success},\n"
+        f"Final Cost: {result.fun:.4f},\n"
+        f"Optimal Parameters: {result.x}"
+    )
+
+
+def _plot_results():
+    """Plot the optimization history of the objective function values."""
+    plt.figure(figsize=(10, 6))
+    plt.plot(OBJECTIVE_FUNC_VALUES, marker="o")
+    plt.title("Objective Function Value During Optimization")
+    plt.xlabel("Evaluation Number")
+    plt.ylabel("Estimated Cost Function Value")
+    plt.grid()
+    plt.show()
+
+
 def knapsack_solver(args):
     """Script entrypoint that demonstrates mapping and prints the Hamiltonian.
 
@@ -230,21 +268,22 @@ def knapsack_solver(args):
     SEED = args.seed
 
     knapsack_instance = KnapsackInstance(
-        values=[8, 5, 6, 9, 4, 7, 3, 10],
-        weights=[4, 3, 5, 6, 2, 4, 1, 7],
-        capacity=12,
+        values=[8, 5, 6, 9],
+        weights=[4, 3, 5, 6],
+        capacity=10,
     )
 
-    classical_solution = bruteforce(knapsack_instance)
-    logger.info(f"Classical solution: {classical_solution}")
+    classical_solution, classical_value = bruteforce(knapsack_instance)
+    logger.info(f"Classical solution: {classical_solution}, Value: {classical_value}")
 
     hamiltonian, offset = map_hamiltonian(knapsack_instance)
+    logger.info(f"Mapped Hamiltonian:\n{hamiltonian}\nOffset: {offset}")
     p_state = None
 
     if args.use_reference_state:
         p_state = pstate(knapsack_instance)
     ansatz = QAOAAnsatz(hamiltonian, reps=1, initial_state=p_state)
-    logger.info(f"Cost Hamiltonian (QUBO) as SparsePauliOp:\n{hamiltonian}")
+
     logger.info(f"Number of qubits: {ansatz.num_qubits}")
     logger.info(f"Initial parameters: {ansatz.parameters}")
 
@@ -259,8 +298,9 @@ def knapsack_solver(args):
         method=args.optimizer,
         options={"maxiter": args.iterations, "disp": True},
     )
-
-    # logger.info(f"Optimization result: {_pretty_result(result)}")
+    logger.info(f"Final cost accounting for offset: {result.fun + offset:.4f}")
+    logger.info(f"Optimization result:\n{_pretty_result(result)}")
+    _plot_results()
 
 
 if __name__ == "__main__":
