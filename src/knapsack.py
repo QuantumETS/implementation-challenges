@@ -131,7 +131,6 @@ def pstate(knapsack_instance: KnapsackInstance) -> QuantumCircuit:
     Returns:
         A `QuantumCircuit` that prepares a reference state (e.g., all zeros).
     """
-
     num_qubits = len(knapsack_instance.values)
     circuit = QuantumCircuit(num_qubits)
 
@@ -140,7 +139,7 @@ def pstate(knapsack_instance: KnapsackInstance) -> QuantumCircuit:
     return circuit
 
 
-def knapsack_solver():
+def knapsack_solver(args):
     """Script entrypoint that demonstrates mapping and prints the Hamiltonian.
 
     This function creates a sample :class:`KnapsackInstance`, converts it to an
@@ -154,9 +153,10 @@ def knapsack_solver():
     )
 
     hamiltonian, offset = map_hamiltonian(knapsack_instance)
+    p_state = None
 
-    print(hamiltonian)
-    p_state = pstate(knapsack_instance)
+    if args.use_reference_state:
+        p_state = pstate(knapsack_instance)
     ansatz = QAOAAnsatz(hamiltonian, reps=1, initial_state=p_state)
 
 
@@ -190,15 +190,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--seed",
         type=int,
-        default=42,
+        default=67,
         help="Random seed for reproducibility",
     )
     parser.add_argument(
         "--penalty-scaling",
         type=float,
-        default=1.0,
         help="Scaling factor for the penalty",
     )
 
     args = parser.parse_args()
-    knapsack_solver()
+    knapsack_solver(args)
