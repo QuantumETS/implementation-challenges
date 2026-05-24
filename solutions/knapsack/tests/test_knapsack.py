@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import SparsePauliOp
+from qiskit.primitives import BaseEstimatorV2
 
 import src.knapsack as knapsack_module
 from src.knapsack import (
@@ -153,7 +154,7 @@ class TestQiskitHelpers:
         hamiltonian, offset = map_hamiltonian(case["instance"], penalty_factor=10.0)
 
         assert isinstance(hamiltonian, SparsePauliOp)
-        assert hamiltonian.num_qubits >= len(case["instance"].values)
+        assert hamiltonian.num_qubits >= len(case["instance"].values)  # type: ignore
         assert isinstance(offset, Real)
 
     @pytest.mark.parametrize("case", KNAPSACK_CASES, ids=_case_ids(KNAPSACK_CASES))
@@ -175,7 +176,7 @@ class TestQiskitHelpers:
             def result(self):
                 return [SimpleNamespace(data=SimpleNamespace(evs=self._energy))]
 
-        class _FakeEstimator:
+        class _FakeEstimator(BaseEstimatorV2):
             def __init__(self, energy):
                 self.energy = energy
                 self.pubs = None
