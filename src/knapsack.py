@@ -15,6 +15,8 @@ from qiskit_optimization import QuadraticProgram
 from qiskit_optimization.converters import QuadraticProgramToQubo
 from qiskit_optimization.applications import Knapsack
 from qiskit.circuit.library import QAOAAnsatz
+from qiskit.primitives import BaseEstimatorV2, StatevectorEstimator
+
 
 from argparse import ArgumentParser
 
@@ -91,6 +93,35 @@ def objective_function(x: list[int]) -> float:
         The scalar objective value (cost + penalty).
     """
     return cost_function(x) + penalty_function(x)
+
+
+def cost_function_estimator(
+    params,
+    ansatz: QuantumCircuit,
+    hamiltonian: SparsePauliOp,
+    estimator: BaseEstimatorV2,
+) -> float:
+    """Estimate the cost function value for given parameters.
+
+    This helper function takes a parameter vector, constructs the corresponding
+    quantum state using the provided ansatz, and estimates the expectation
+    value of the cost Hamiltonian using the given estimator.
+
+    Args:
+        params: Parameter vector for the ansatz.
+        ansatz: The QAOA ansatz circuit.
+        hamiltonian: The cost Hamiltonian as a SparsePauliOp.
+        estimator: A Qiskit Estimator instance for evaluating expectation values.
+
+    Returns:
+        The estimated cost function value as a float.
+    """
+    pub = (ansatz, hamiltonian, params)
+
+    result = estimator.run(pubs=[pub]).result()
+    energy = result[0].data.evs[0]
+
+    return energy
 
 
 def map_hamiltonian(knapsack_instance: KnapsackInstance) -> tuple[SparsePauliOp, float]:
