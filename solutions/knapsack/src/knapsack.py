@@ -6,7 +6,7 @@ Hamiltonian (QUBO) using Qiskit Optimization. It also exposes a small
 script-style entrypoint for local demonstrations.
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 import itertools
 
 import matplotlib.pyplot as plt
@@ -261,6 +261,49 @@ def _plot_results():
     plt.show()
 
 
+def _json_default(value):
+    """Convert common non-JSON types in experiment results to plain Python objects."""
+    if is_dataclass(value):
+        return asdict(value)
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+
+    raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")
+
+
+def _save_results(results: dict):
+    """Save the results dictionary to a JSON file.
+
+    Args:
+        results: The dictionary containing optimization results and metadata.
+    """
+    import json
+    import datetime as dt
+    from pathlib import Path
+
+    timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    if not Path("results").exists():
+        Path("results").mkdir()
+    filename = f"knapsack_results_{timestamp}.json"
+    with open(f"results/{filename}", "w") as f:
+        json.dump(results, f, indent=4, default=_json_default)
+    logger.info(f"Results saved to results/{filename}")
+
+
+def process_result(optimization_result: OptimizeResult, results: dict):
+    """Process the optimization result and update the results dictionary.
+
+    Args:
+        optimization_result: The optimization result from scipy.optimize.minimize.
+        results: The dictionary to update with quantum optimization results.
+    """
+    results["quantum"]["final_cost"] = optimization_result.fun
+    results["quantum"]["optimal_parameters"] = optimization_result.x.tolist()
+    _save_results(results)
+
+
 def knapsack_solver(args):
     """Script entrypoint that demonstrates mapping and prints the Hamiltonian.
 
@@ -276,8 +319,32 @@ def knapsack_solver(args):
         capacity=10,
     )
 
+    results = {
+        "metadata": {
+            "seed": SEED,
+            "optimizer": args.optimizer,
+            "max_iterations": args.iterations,
+            "qaoa_layers": args.qaoa_layers,
+            "use_reference_state": args.use_reference_state,
+            "penalty_scaling": args.penalty_scaling,
+            "knapsack_instance": asdict(knapsack_instance),
+        },
+        "classical": {
+            "solution": None,
+            "value": None,
+        },
+        "quantum": {
+            "solution": None,
+            "final_cost": None,
+            "optimal_parameters": None,
+            "optimization_log": {},
+        },
+    }
+
     classical_solution, classical_value = bruteforce(knapsack_instance)
     logger.info(f"Classical solution: {classical_solution}, Value: {classical_value}")
+    results["classical"]["solution"] = classical_solution
+    results["classical"]["value"] = classical_value
 
     hamiltonian, offset = map_hamiltonian(
         knapsack_instance,
@@ -297,15 +364,14 @@ def knapsack_solver(args):
 
     initial_params = _x0_parameters(ansatz.num_parameters)
 
-    result = minimize(
+    optimization_result = minimize(
         cost_function_estimator,
         x0=initial_params,
         args=(ansatz, hamiltonian, estimator),
         method=args.optimizer,
         options={"maxiter": args.iterations, "disp": True},
     )
-    logger.info(f"Final cost accounting for offset: {result.fun + offset:.4f}")
-    logger.info(f"Optimization result:\n{_pretty_result(result)}")
+    process_result(optimization_result, results)
     _plot_results()
 
 
