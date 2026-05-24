@@ -7,8 +7,8 @@ import pytest
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import SparsePauliOp
 
-import knapsack as knapsack_module
-from knapsack import (
+import src.knapsack as knapsack_module
+from src.knapsack import (
     KnapsackInstance,
     _x0_parameters,
     bruteforce,
@@ -150,7 +150,7 @@ class TestQiskitHelpers:
     @pytest.mark.parametrize("case", KNAPSACK_CASES, ids=_case_ids(KNAPSACK_CASES))
     def test_map_hamiltonian_returns_ising_operator_and_offset(self, case):
         """The mapper should produce an Ising operator with the expected size."""
-        hamiltonian, offset = map_hamiltonian(case["instance"])
+        hamiltonian, offset = map_hamiltonian(case["instance"], penalty_factor=10.0)
 
         assert isinstance(hamiltonian, SparsePauliOp)
         assert hamiltonian.num_qubits >= len(case["instance"].values)

@@ -172,7 +172,9 @@ def cost_function_estimator(
     return energy
 
 
-def map_hamiltonian(knapsack_instance: KnapsackInstance) -> tuple[SparsePauliOp, float]:
+def map_hamiltonian(
+    knapsack_instance: KnapsackInstance, penalty_factor: float
+) -> tuple[SparsePauliOp, float]:
     """Convert a `KnapsackInstance` into an Ising Hamiltonian.
 
     This helper constructs a Qiskit Optimization `Knapsack` application
@@ -182,6 +184,7 @@ def map_hamiltonian(knapsack_instance: KnapsackInstance) -> tuple[SparsePauliOp,
 
     Args:
         knapsack_instance: The knapsack instance to convert.
+        penalty_factor: The scaling factor for the penalty term.
 
     Returns:
         A tuple ``(hamiltonian, offset)`` where ``hamiltonian`` is a
@@ -195,7 +198,7 @@ def map_hamiltonian(knapsack_instance: KnapsackInstance) -> tuple[SparsePauliOp,
     )
 
     qprog: QuadraticProgram = knapsack.to_quadratic_program()
-    qubo = QuadraticProgramToQubo(sum(knapsack_instance.values)).convert(qprog)
+    qubo = QuadraticProgramToQubo(penalty=penalty_factor).convert(qprog)
 
     return qubo.to_ising()
 
@@ -276,13 +279,16 @@ def knapsack_solver(args):
     classical_solution, classical_value = bruteforce(knapsack_instance)
     logger.info(f"Classical solution: {classical_solution}, Value: {classical_value}")
 
-    hamiltonian, offset = map_hamiltonian(knapsack_instance)
+    hamiltonian, offset = map_hamiltonian(
+        knapsack_instance,
+        penalty_factor=args.penalty_scaling,
+    )
     logger.info(f"Mapped Hamiltonian:\n{hamiltonian}\nOffset: {offset}")
     p_state = None
 
     if args.use_reference_state:
         p_state = pstate(knapsack_instance)
-    ansatz = QAOAAnsatz(hamiltonian, reps=1, initial_state=p_state)
+    ansatz = QAOAAnsatz(hamiltonian, reps=args.qaoa_layers, initial_state=p_state)
 
     logger.info(f"Number of qubits: {ansatz.num_qubits}")
     logger.info(f"Initial parameters: {ansatz.parameters}")
