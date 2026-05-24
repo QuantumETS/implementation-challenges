@@ -17,13 +17,18 @@ from qiskit_optimization.converters import QuadraticProgramToQubo
 from qiskit_optimization.applications import Knapsack
 from qiskit.circuit.library import QAOAAnsatz
 from qiskit.primitives import BaseEstimatorV2, StatevectorEstimator
+from scipy.optimize import minimize
 
 import logging
 from argparse import ArgumentParser
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
+
+SEED = None  # Global seed for reproducibility, can be set from command-line arguments
 
 
 @dataclass
@@ -151,7 +156,7 @@ def cost_function_estimator(
     pub = (ansatz, hamiltonian, params)
 
     result = estimator.run(pubs=[pub]).result()
-    energy = result[0].data.evs[0]
+    energy = result[0].data.evs
 
     return energy
 
@@ -202,6 +207,19 @@ def pstate(knapsack_instance: KnapsackInstance) -> QuantumCircuit:
     return circuit
 
 
+def _x0_parameters(num_params) -> np.ndarray:
+    """Generate deterministic initial parameters for the optimizer.
+
+    Args:
+        num_params: Number of parameters to generate.
+
+    Returns:
+        np.ndarray: Seeded random initial parameter vector.
+    """
+    params = np.random.RandomState(seed=SEED).random(num_params)
+    return params
+
+
 def knapsack_solver(args):
     """Script entrypoint that demonstrates mapping and prints the Hamiltonian.
 
@@ -209,6 +227,8 @@ def knapsack_solver(args):
     Ising Hamiltonian using :func:`map_hamiltonian`, and prints the resulting
     operator. It is intended for quick local demonstrations and testing.
     """
+    SEED = args.seed
+
     knapsack_instance = KnapsackInstance(
         values=[8, 5, 6, 9, 4, 7, 3, 10],
         weights=[4, 3, 5, 6, 2, 4, 1, 7],
@@ -224,6 +244,23 @@ def knapsack_solver(args):
     if args.use_reference_state:
         p_state = pstate(knapsack_instance)
     ansatz = QAOAAnsatz(hamiltonian, reps=1, initial_state=p_state)
+    logger.info(f"Cost Hamiltonian (QUBO) as SparsePauliOp:\n{hamiltonian}")
+    logger.info(f"Number of qubits: {ansatz.num_qubits}")
+    logger.info(f"Initial parameters: {ansatz.parameters}")
+
+    estimator = StatevectorEstimator(seed=SEED)
+
+    initial_params = _x0_parameters(ansatz.num_parameters)
+
+    result = minimize(
+        cost_function_estimator,
+        x0=initial_params,
+        args=(ansatz, hamiltonian, estimator),
+        method=args.optimizer,
+        options={"maxiter": args.iterations, "disp": True},
+    )
+
+    # logger.info(f"Optimization result: {_pretty_result(result)}")
 
 
 if __name__ == "__main__":
