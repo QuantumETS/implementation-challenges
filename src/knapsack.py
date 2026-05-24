@@ -9,10 +9,14 @@ script-style entrypoint for local demonstrations.
 from dataclasses import dataclass
 
 import numpy as np
+from qiskit import QuantumCircuit
 from qiskit.quantum_info import SparsePauliOp
 from qiskit_optimization import QuadraticProgram
 from qiskit_optimization.converters import QuadraticProgramToQubo
 from qiskit_optimization.applications import Knapsack
+from qiskit.circuit.library import QAOAAnsatz
+
+from argparse import ArgumentParser
 
 
 @dataclass
@@ -117,17 +121,31 @@ def map_hamiltonian(knapsack_instance: KnapsackInstance) -> tuple[SparsePauliOp,
     return qubo.to_ising()
 
 
+def pstate(knapsack_instance: KnapsackInstance) -> QuantumCircuit:
+    """Construct a quantum circuit that prepares a reference state from a
+    `KnapsackInstance`.
+
+    Args:
+        knapsack_instance: The knapsack instance to create the state for.
+
+    Returns:
+        A `QuantumCircuit` that prepares a reference state (e.g., all zeros).
+    """
+
+    num_qubits = len(knapsack_instance.values)
+    circuit = QuantumCircuit(num_qubits)
+
+    # TODO : Implement a state including the most valuable item
+
+    return circuit
+
+
 def knapsack_solver():
     """Script entrypoint that demonstrates mapping and prints the Hamiltonian.
 
     This function creates a sample :class:`KnapsackInstance`, converts it to an
     Ising Hamiltonian using :func:`map_hamiltonian`, and prints the resulting
     operator. It is intended for quick local demonstrations and testing.
-
-    Note:
-        The remainder of the quantum optimization pipeline (solvers, samplers,
-        and result interpretation) is intentionally left as a TODO for
-        integration in higher-level scripts or tests.
     """
     knapsack_instance = KnapsackInstance(
         values=[8, 5, 6, 9, 4, 7, 3, 10],
@@ -138,9 +156,49 @@ def knapsack_solver():
     hamiltonian, offset = map_hamiltonian(knapsack_instance)
 
     print(hamiltonian)
-
-    # TODO : Add the rest of the quantum optimization pipeline.
+    p_state = pstate(knapsack_instance)
+    ansatz = QAOAAnsatz(hamiltonian, reps=1, initial_state=p_state)
 
 
 if __name__ == "__main__":
+    parser = ArgumentParser(
+        description="Quantum resolution of the Knapsack problem using QAOA."
+    )
+    parser.add_argument(
+        "--use-reference-state",
+        action="store_true",
+        help="Use a reference prepared state",
+    )
+    parser.add_argument(
+        "--optimizer",
+        choices=["COBYLA", "SLSQP", "ADAM"],
+        default="COBYLA",
+        help="Optimizer to use for parameter optimization",
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=100,
+        help="Number of iterations for the optimizer",
+    )
+    parser.add_argument(
+        "--qaoa-layers",
+        type=int,
+        default=1,
+        help="Number of QAOA layers (reps)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducibility",
+    )
+    parser.add_argument(
+        "--penalty-scaling",
+        type=float,
+        default=1.0,
+        help="Scaling factor for the penalty",
+    )
+
+    args = parser.parse_args()
     knapsack_solver()
