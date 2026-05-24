@@ -7,6 +7,7 @@ script-style entrypoint for local demonstrations.
 """
 
 from dataclasses import dataclass
+import itertools
 
 import numpy as np
 from qiskit import QuantumCircuit
@@ -17,8 +18,12 @@ from qiskit_optimization.applications import Knapsack
 from qiskit.circuit.library import QAOAAnsatz
 from qiskit.primitives import BaseEstimatorV2, StatevectorEstimator
 
-
+import logging
 from argparse import ArgumentParser
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -93,6 +98,33 @@ def objective_function(x: list[int]) -> float:
         The scalar objective value (cost + penalty).
     """
     return cost_function(x) + penalty_function(x)
+
+
+def bruteforce(knapsack_instance: KnapsackInstance) -> list[int]:
+    """Brute-force search for the optimal selection vector.
+
+    This helper function exhaustively evaluates all possible binary selection
+    vectors and returns the one with the lowest objective function value.
+
+    Args:
+        knapsack_instance: The knapsack instance to solve.
+
+    Returns:
+        The optimal binary selection vector as a list of integers (0 or 1).
+    """
+    bestValue = float("inf")
+    bestArray = []
+
+    for test in itertools.product([0, 1], repeat=len(knapsack_instance.values)):
+        logger.debug(f"Testing selection: {test}")
+        test = list(test)
+        newValue = objective_function(test)
+        if newValue < bestValue:
+            bestValue = newValue
+            bestArray = test.copy()
+            logger.debug(f"New best selection: {bestArray} with value {bestValue}")
+
+    return bestArray
 
 
 def cost_function_estimator(
@@ -182,6 +214,9 @@ def knapsack_solver(args):
         weights=[4, 3, 5, 6, 2, 4, 1, 7],
         capacity=12,
     )
+
+    classical_solution = bruteforce(knapsack_instance)
+    logger.info(f"Classical solution: {classical_solution}")
 
     hamiltonian, offset = map_hamiltonian(knapsack_instance)
     p_state = None
