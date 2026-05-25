@@ -469,6 +469,15 @@ wheels = [
 ]
 
 [[package]]
+name = "docplex"
+version = "2.32.264"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b4/02/7aec9042e1727b9f8fd745fa799bc8b4fd76e4db57f05a81eb676ead401b/docplex-2.32.264.tar.gz", hash = "sha256:4e2b29b3559e702bcfe12c6747428c752b0c39a508a81addf05edaab36b76bd8", size = 663972, upload-time = "2026-04-01T08:04:10.512Z" }
+
+[[package]]
 name = "executing"
 version = "2.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1650,6 +1659,12 @@ wheels = [
 ]
 
 [[package]]
+name = "pylatexenc"
+version = "2.10"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5d/ab/34ec41718af73c00119d0351b7a2531d2ebddb51833a36448fc7b862be60/pylatexenc-2.10.tar.gz", hash = "sha256:3dd8fd84eb46dc30bee1e23eaab8d8fb5a7f507347b23e5f38ad9675c84f40d3", size = 162597, upload-time = "2021-04-06T07:56:07.854Z" }
+
+[[package]]
 name = "pyparsing"
 version = "3.3.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1707,6 +1722,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f2/f8/c1b00ac0843089771152e650c6143825746c9c85d4dac855207e15c9e26e/qiskit-2.4.1-cp310-abi3-manylinux_2_28_s390x.whl", hash = "sha256:a46572a39c3fbb01561e97e2ac7ec3afe29e96090e8d8040e90c2059ab5b3055", size = 9187719, upload-time = "2026-04-24T22:41:40.925Z" },
     { url = "https://files.pythonhosted.org/packages/90/e8/9f1859218193ed89aef5d54b5385d891e808ff8830667bbc490d85507afd/qiskit-2.4.1-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:bb85390b4d6878ecc28fb54b78b128a24642a42eb3a5a58c4b144ee0730fece7", size = 9319379, upload-time = "2026-04-24T20:34:09.075Z" },
     { url = "https://files.pythonhosted.org/packages/11/6a/c9065d0f74178275963b44e57fd93530ed36089682f918553c3bceb9a8ba/qiskit-2.4.1-cp310-abi3-win_amd64.whl", hash = "sha256:91c8c8b0582a8d0dc46c0d3fd37896b2facfd99c54671ac557da9f643114e5e3", size = 9108769, upload-time = "2026-04-24T20:34:11.888Z" },
+]
+
+[[package]]
+name = "qiskit-optimization"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "docplex" },
+    { name = "networkx" },
+    { name = "numpy" },
+    { name = "qiskit" },
+    { name = "scipy" },
+    { name = "setuptools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c9/e0/46e635e6d447f08ef9d9b2e89d129454ec2db3a2327237cea2bd3e8c4878/qiskit_optimization-0.7.0.tar.gz", hash = "sha256:059e9329c647534965e68d8c52de1b02828635c525c210aa0730e486f9c5a686", size = 219471, upload-time = "2025-08-20T14:04:16.96Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ba/a1/78908508b73f0e9f638abeace753c07439f92d3eb2fda36706f8e08e73d6/qiskit_optimization-0.7.0-py3-none-any.whl", hash = "sha256:2082390c2b89cdf2083f6f790486797a0e188016e0dd31c8a32b27f6913864dc", size = 237135, upload-time = "2025-08-20T14:04:15.478Z" },
 ]
 
 [[package]]
@@ -2140,14 +2172,18 @@ version = "0.1.0"
 source = { virtual = "challenges/VQA-Knapsack" }
 dependencies = [
     { name = "matplotlib" },
+    { name = "pylatexenc" },
     { name = "qiskit" },
+    { name = "qiskit-optimization" },
     { name = "scipy" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.9" },
+    { name = "pylatexenc", specifier = ">=2.10" },
     { name = "qiskit", specifier = ">=2.4.1" },
+    { name = "qiskit-optimization", specifier = ">=0.7.0" },
     { name = "scipy", specifier = ">=1.17.1" },
 ]
 
