@@ -7,6 +7,7 @@ script-style entrypoint for local demonstrations.
 """
 
 from dataclasses import asdict, dataclass, is_dataclass
+from collections import defaultdict
 import itertools
 
 import matplotlib.pyplot as plt
@@ -25,7 +26,7 @@ from argparse import ArgumentParser
 
 
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -139,8 +140,6 @@ def bruteforce(knapsack_instance: KnapsackInstance) -> tuple[list[int], float]:
     return bestArray, bestValue
 
 
-
-
 def map_hamiltonian(
     knapsack_instance: KnapsackInstance, penalty_factor: float
 ) -> tuple[SparsePauliOp, float]:
@@ -172,7 +171,9 @@ def map_hamiltonian(
     return qubo.to_ising()
 
 
-def pstate(knapsack_instance: KnapsackInstance, hamiltonian: SparsePauliOp) -> QuantumCircuit:
+def pstate(
+    knapsack_instance: KnapsackInstance, hamiltonian: SparsePauliOp
+) -> QuantumCircuit:
     """Construct a quantum circuit that prepares a reference state from a
     `KnapsackInstance`.
 
@@ -202,8 +203,9 @@ def pstate(knapsack_instance: KnapsackInstance, hamiltonian: SparsePauliOp) -> Q
     index = most_valuable_item()
     if index is not None:
         circuit.x(index)  # Flip the qubit corresponding to the most valuable item
-    
+
     return circuit
+
 
 def decode_optimization_result(
     optimization_result: OptimizeResult,
@@ -213,9 +215,9 @@ def decode_optimization_result(
     results: dict,
 ):
     """Decode the optimization result to extract the best solution and its value.
-    
+
     This function takes the optimization result from scipy, constructs the corresponding quantum state using the ansatz and optimal parameters, and identifies the solution bitstring with the lowest energy. It then updates the results dictionary with the decoded solution and its value.
-    
+
     Args:
         optimization_result: The result object returned by scipy.optimize.minimize.
         ansatz: The QAOA ansatz circuit used for the optimization.
@@ -226,10 +228,9 @@ def decode_optimization_result(
     optimal_params = optimization_result.x
     optimal_circuit = ansatz.assign_parameters(optimal_params)
 
-    optimal_state = Statevector.from_instruction(optimal_circuit) # type: ignore
+    optimal_state = Statevector.from_instruction(optimal_circuit)  # type: ignore
     probabilities = optimal_state.probabilities_dict()
     results["quantum"]["probabilities"] = probabilities
-
 
 
 def _x0_parameters(num_params) -> np.ndarray:
@@ -256,7 +257,10 @@ def _json_default(value):
     if isinstance(value, np.generic):
         return value.item()
 
-    raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")
+    raise TypeError(
+        f"Object of type {value.__class__.__name__} is not JSON serializable"
+    )
+
 
 def _qiskit_bits_inversion(probabilities, sort_keys: bool = True):
     """Invert Qiskit bitstring keys from q_{n-1}...q_0 to x_0...x_{n-1}.
@@ -267,7 +271,6 @@ def _qiskit_bits_inversion(probabilities, sort_keys: bool = True):
     keys are sorted lexicographically. If a list of keys is provided, a new
     list of reversed (and optionally sorted) keys is returned.
     """
-    # In-place dict transformation (preferred for keeping references)
     if isinstance(probabilities, dict):
         new = {key[::-1]: value for key, value in probabilities.items()}
         if sort_keys:
@@ -278,12 +281,12 @@ def _qiskit_bits_inversion(probabilities, sort_keys: bool = True):
         probabilities.update(ordered)
         return probabilities
 
-    # Backwards-compatible behavior for lists of keys
     if isinstance(probabilities, list):
         out = [key[::-1] for key in probabilities]
         return sorted(out) if sort_keys else out
 
     raise TypeError("_qiskit_bits_inversion expects a dict or list of strings")
+
 
 def _save_results(results: dict):
     """Save the results dictionary to a JSON file.
@@ -305,10 +308,14 @@ def _save_results(results: dict):
         json.dump(results, f, indent=4, default=_json_default)
     logger.info(f"Results saved to results/{result_dirname}/{filename}")
 
-    def _plot_optimization_curve(objective_log: list[dict[str, float]]):
+    def _plot_optimization_curve(
+        objective_log: list[dict[str, float]], result_dirname: str, timestamp: str
+    ) -> None:
         """Plot the optimization history of the objective function values and saves the figure."""
         plt.figure(figsize=(10, 6))
-        plt.plot([log["estimated_cost"] for log in objective_log],)
+        plt.plot(
+            [log["estimated_cost"] for log in objective_log],
+        )
         plt.title("Optimization iterations")
         plt.xlabel("Iteration")
         plt.ylabel("Estimated Cost")
@@ -316,25 +323,143 @@ def _save_results(results: dict):
         plot_filename = f"results/{result_dirname}/optimization_history_{timestamp}.png"
         plt.savefig(plot_filename, dpi=150)
         logger.info(f"Optimization history plot saved to {plot_filename}")
-    
-    def _plot_distribution(probabilities: dict[str, float]):
-        """Plot the distribution of solution probabilities and saves the figure."""
-        plt.figure(figsize=(10, 6))
-        plt.bar(probabilities.keys(), probabilities.values()) # type: ignore
-        plt.title("Distribution of probabilities for optimal parameters")
+        plt.close()
+
+    def _plot_top_bitstrings(
+        probabilities: dict[str, float],
+        result_dirname: str,
+        timestamp: str,
+        plotname: str = "top_bitstrings",
+        k: int = 30,
+    ) -> None:
+        """Plot the top-k most probable bitstrings and aggregate the rest as 'Other'."""
+        top_k_bitstrings = {
+            bitstring
+            for bitstring, _ in sorted(
+                probabilities.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )[:k]
+        }
+
+        labels: list[str] = []
+        values: list[float] = []
+        other_probability = 0.0
+
+        for bitstring, probability in probabilities.items():
+            if bitstring in top_k_bitstrings:
+                labels.append(bitstring)
+                values.append(probability)
+            else:
+                other_probability += probability
+
+        if other_probability > 0:
+            labels.append("Other")
+            values.append(other_probability)
+
+        plt.figure(figsize=(12, 6))
+        plt.bar(labels, values)
+        plt.title(f"Top {k} bitstring probabilities")
         plt.xlabel("Bitstring")
         plt.ylabel("Probability")
-        plt.xticks(rotation=90)
+        plt.xticks(rotation=75, ha="right")
         plt.tight_layout()
-        plot_filename = f"results/{result_dirname}/solution_probabilities_{timestamp}.png"
+
+        plot_filename = Path("results") / result_dirname / f"{plotname}_{timestamp}.png"
         plt.savefig(plot_filename, dpi=150)
-        logger.info(f"Solution probabilities plot saved to {plot_filename}")
+        plt.close()
+
+    def _plot_slack_distribution_for_top_info_bits(
+        probabilities: dict[str, float],
+        aggregated_probabilities: dict[str, float],
+        result_dirname: str,
+        timestamp: str,
+        top_info_count: int = 5,
+    ) -> None:
+        """
+        For the top info-bit assignments, plot the distribution over slack bits.
+
+        Assumes bitstrings are ordered as:
+            info bits followed by slack bits.
+        """
+        if not aggregated_probabilities:
+            return
+
+        n_info_bits = len(next(iter(aggregated_probabilities)))
+
+        grouped: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+
+        for bitstring, probability in probabilities.items():
+            info_bits = bitstring[:n_info_bits]
+            slack_bits = bitstring[n_info_bits:]
+            grouped[info_bits][slack_bits] += probability
+
+        top_info_bits = [
+            info_bits
+            for info_bits, _ in sorted(
+                aggregated_probabilities.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )[:top_info_count]
+        ]
+
+        for info_bits in top_info_bits:
+            slack_distribution = grouped.get(info_bits)
+
+            if not slack_distribution:
+                continue
+
+            slack_items = sorted(
+                slack_distribution.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+
+            labels = [slack_bits for slack_bits, _ in slack_items]
+            values = [prob for _, prob in slack_items]
+
+            plt.figure(figsize=(10, 5))
+            plt.bar(labels, values)
+
+            plt.title(
+                f"Slack distribution for info bits {info_bits} "
+                f"(total probability = {aggregated_probabilities[info_bits]:.4f})"
+            )
+            plt.xlabel("Slack bits")
+            plt.ylabel("Probability")
+            plt.xticks(rotation=60, ha="right")
+            plt.tight_layout()
+
+            plot_filename = (
+                Path("results")
+                / result_dirname
+                / f"slack_distribution_info_{info_bits}_{timestamp}.png"
+            )
+
+            plt.savefig(plot_filename, dpi=150)
+            plt.close()
+
+    _plot_optimization_curve(
+        objective_log=results["quantum"]["optimization_log"].values(),
+        result_dirname=result_dirname,
+        timestamp=timestamp,
+    )
+    _plot_top_bitstrings(
+        probabilities=results["quantum"]["probabilities"],
+        result_dirname=result_dirname,
+        timestamp=timestamp,
+    )
+    _plot_top_bitstrings(
+        probabilities=results["quantum"]["aggregated_probabilities"],
+        result_dirname=result_dirname,
+        timestamp=timestamp,
+        plotname="top_aggregated_bitstrings",
+    )
 
 
-    _plot_optimization_curve(objective_log=results["quantum"]["optimization_log"].values())
-    _plot_distribution(probabilities=results["quantum"]["probabilities"])
-
-def _aggregate_probabilities(probabilities: dict[str, float], bits_labels: list[str]) -> dict[str, float]:
+def _aggregate_probabilities(
+    probabilities: dict[str, float], bits_labels: list[str]
+) -> dict[str, float]:
     """Aggregate probabilities of bitstrings that correspond to the same item selection.
 
     This function takes a dictionary of bitstring probabilities and a list of bit labels, and aggregates the probabilities of bitstrings that correspond to the same selection of items (ignoring slack variables). The resulting dictionary maps item selection bitstrings to their aggregated probabilities.
@@ -346,12 +471,15 @@ def _aggregate_probabilities(probabilities: dict[str, float], bits_labels: list[
     Returns:
         A dictionary mapping item selection bitstrings (e.g., '00', '01', '10', '11') to their aggregated probabilities.
     """
-    item_bits_indices = [i for i, label in enumerate(bits_labels) if label.startswith('x')]
+    item_bits_indices = [
+        i for i, label in enumerate(bits_labels) if label.startswith("x")
+    ]
     aggregated = {}
     for bitstring, prob in probabilities.items():
-        item_selection = ''.join(bitstring[i] for i in item_bits_indices)
+        item_selection = "".join(bitstring[i] for i in item_bits_indices)
         aggregated[item_selection] = aggregated.get(item_selection, 0) + prob
     return aggregated
+
 
 def process_result(optimization_result: OptimizeResult, results: dict):
     """Process the optimization result and update the results dictionary.
@@ -362,13 +490,21 @@ def process_result(optimization_result: OptimizeResult, results: dict):
     """
     results["quantum"]["final_cost"] = optimization_result.fun
     results["quantum"]["optimal_parameters"] = optimization_result.x.tolist()
-    results["quantum"]["probabilities"] = _qiskit_bits_inversion(results["quantum"]["probabilities"]) # type: ignore
-    results["quantum"]["aggregated_probabilities"] = _aggregate_probabilities(results["quantum"]["probabilities"], results["quantum"]["bits_labels"])
-    results["quantum"]["aggregated_solution"] = max(results["quantum"]["aggregated_probabilities"], key=results["quantum"]["aggregated_probabilities"].get)
-    results["quantum"]["unique_solution"] = max(results["quantum"]["probabilities"], key=results["quantum"]["probabilities"].get)
+    results["quantum"]["probabilities"] = _qiskit_bits_inversion(
+        results["quantum"]["probabilities"]
+    )  # type: ignore
+    results["quantum"]["aggregated_probabilities"] = _aggregate_probabilities(
+        results["quantum"]["probabilities"], results["quantum"]["bits_labels"]
+    )
+    results["quantum"]["aggregated_solution"] = max(
+        results["quantum"]["aggregated_probabilities"],
+        key=results["quantum"]["aggregated_probabilities"].get,
+    )
+    results["quantum"]["unique_solution"] = max(
+        results["quantum"]["probabilities"], key=results["quantum"]["probabilities"].get
+    )
 
     _save_results(results)
-    
 
 
 def knapsack_solver(args):
@@ -378,13 +514,13 @@ def knapsack_solver(args):
     Ising Hamiltonian using :func:`map_hamiltonian`, and prints the resulting
     operator. It is intended for quick local demonstrations and testing.
     """
-    global SEED 
+    global SEED
     SEED = args.seed
 
     knapsack_instance = KnapsackInstance(
-        values =  [8, 5, 3, 10],
-        weights = [4, 3, 1, 7],
-        capacity = 8,
+        values=[8, 10],
+        weights=[4, 7],
+        capacity=8,
     )
 
     results = {
@@ -394,7 +530,9 @@ def knapsack_solver(args):
             "max_iterations": args.iterations,
             "qaoa_layers": args.qaoa_layers,
             "use_reference_state": args.use_reference_state,
-            "penalty_scaling": args.penalty_scaling if args.penalty_scaling is not None else sum(knapsack_instance.values),
+            "penalty_scaling": args.penalty_scaling
+            if args.penalty_scaling is not None
+            else sum(knapsack_instance.values),
             "knapsack_instance": asdict(knapsack_instance),
         },
         "classical": {
@@ -408,8 +546,8 @@ def knapsack_solver(args):
             "unique_solution": None,
             "optimal_parameters": None,
             "bits_labels": None,
-            "probabilities": None,
             "aggregated_probabilities": None,
+            "probabilities": None,
             "hamiltonian": None,
             "optimization_log": {},
         },
@@ -437,14 +575,15 @@ def knapsack_solver(args):
     logger.info(f"Initial parameters: {ansatz.parameters}")
 
     item_bits = [f"x{i}" for i in range(len(knapsack_instance.values))]
-    slack_bits = [f"s{i}" for i in range(ansatz.num_qubits - len(knapsack_instance.values))]
+    slack_bits = [
+        f"s{i}" for i in range(ansatz.num_qubits - len(knapsack_instance.values))
+    ]
     all_bits = item_bits + slack_bits
     results["quantum"]["bits_labels"] = all_bits
 
     estimator = StatevectorEstimator(seed=SEED)
 
     initial_params = _x0_parameters(ansatz.num_parameters)
-
 
     def cost_function_estimator(
         params,
@@ -477,7 +616,9 @@ def knapsack_solver(args):
             "parameters": params.tolist(),
             "estimated_cost": energy,
         }
-        logger.info(f"Evaluation {num_evaluations}: Parameters: {params}, Estimated Cost: {energy}")
+        logger.info(
+            f"Evaluation {num_evaluations}: Parameters: {params}, Estimated Cost: {energy}"
+        )
 
         return energy
 
@@ -488,7 +629,9 @@ def knapsack_solver(args):
         method=args.optimizer,
         options={"maxiter": args.iterations, "disp": True},
     )
-    decode_optimization_result(optimization_result, ansatz, hamiltonian, estimator, results)
+    decode_optimization_result(
+        optimization_result, ansatz, hamiltonian, estimator, results
+    )
 
     process_result(optimization_result, results)
 
