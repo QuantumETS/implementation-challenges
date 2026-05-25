@@ -12,7 +12,7 @@ import itertools
 import matplotlib.pyplot as plt
 import numpy as np
 from qiskit import QuantumCircuit
-from qiskit.quantum_info import SparsePauliOp
+from qiskit.quantum_info import SparsePauliOp, Statevector
 from qiskit_optimization import QuadraticProgram
 from qiskit_optimization.converters import QuadraticProgramToQubo
 from qiskit_optimization.applications import Knapsack
@@ -130,46 +130,15 @@ def bruteforce(knapsack_instance: KnapsackInstance) -> tuple[list[int], float]:
     bestArray = []
 
     for test in itertools.product([0, 1], repeat=len(knapsack_instance.values)):
-        logger.debug(f"Testing selection: {test}")
         test = list(test)
         newValue = objective_function(test, knapsack_instance)
         if newValue < bestValue:
             bestValue = newValue
             bestArray = test.copy()
-            logger.debug(f"New best selection: {bestArray} with value {bestValue}")
 
     return bestArray, bestValue
 
 
-def cost_function_estimator(
-    params,
-    ansatz: QuantumCircuit,
-    hamiltonian: SparsePauliOp,
-    estimator: BaseEstimatorV2,
-) -> float:
-    """Estimate the cost function value for given parameters.
-
-    This helper function takes a parameter vector, constructs the corresponding
-    quantum state using the provided ansatz, and estimates the expectation
-    value of the cost Hamiltonian using the given estimator.
-
-    Args:
-        params: Parameter vector for the ansatz.
-        ansatz: The QAOA ansatz circuit.
-        hamiltonian: The cost Hamiltonian as a SparsePauliOp.
-        estimator: A Qiskit Estimator instance for evaluating expectation values.
-
-    Returns:
-        The estimated cost function value as a float.
-    """
-    pub = (ansatz, [hamiltonian], [params])
-
-    result = estimator.run(pubs=[pub]).result()
-    energy = result[0].data.evs
-
-    OBJECTIVE_FUNC_VALUES.append(energy)
-
-    return energy
 
 
 def map_hamiltonian(
@@ -203,22 +172,64 @@ def map_hamiltonian(
     return qubo.to_ising()
 
 
-def pstate(knapsack_instance: KnapsackInstance) -> QuantumCircuit:
+def pstate(knapsack_instance: KnapsackInstance, hamiltonian: SparsePauliOp) -> QuantumCircuit:
     """Construct a quantum circuit that prepares a reference state from a
     `KnapsackInstance`.
 
     Args:
         knapsack_instance: The knapsack instance to create the state for.
+        hamiltonian: The Ising Hamiltonian associated with the problem.
 
     Returns:
         A `QuantumCircuit` that prepares a reference state (e.g., all zeros).
     """
-    num_qubits = len(knapsack_instance.values)
+    num_qubits = hamiltonian.num_qubits
     circuit = QuantumCircuit(num_qubits)
 
-    # TODO : Implement a state including the most valuable item
+    def most_valuable_item():
+        """Identify the index of the most valuable item that fits within capacity."""
+        best_index = None
+        best_value = -float("inf")
+        for i in range(len(knapsack_instance.values)):
+            if (
+                knapsack_instance.weights[i] <= knapsack_instance.capacity
+                and knapsack_instance.values[i] > best_value
+            ):
+                best_value = knapsack_instance.values[i]
+                best_index = i
+        return best_index
 
+    index = most_valuable_item()
+    if index is not None:
+        circuit.x(index)  # Flip the qubit corresponding to the most valuable item
+    
     return circuit
+
+def decode_optimization_result(
+    optimization_result: OptimizeResult,
+    ansatz: QAOAAnsatz,
+    hamiltonian: SparsePauliOp,
+    estimator: BaseEstimatorV2,
+    results: dict,
+):
+    """Decode the optimization result to extract the best solution and its value.
+    
+    This function takes the optimization result from scipy, constructs the corresponding quantum state using the ansatz and optimal parameters, and identifies the solution bitstring with the lowest energy. It then updates the results dictionary with the decoded solution and its value.
+    
+    Args:
+        optimization_result: The result object returned by scipy.optimize.minimize.
+        ansatz: The QAOA ansatz circuit used for the optimization.
+        hamiltonian: The cost Hamiltonian as a SparsePauliOp.
+        estimator: A Qiskit Estimator instance for evaluating expectation values.
+        results: The dictionary to update with the decoded solution and its value.
+    """
+    optimal_params = optimization_result.x
+    optimal_circuit = ansatz.assign_parameters(optimal_params)
+
+    optimal_state = Statevector.from_instruction(optimal_circuit) # type: ignore
+    probabilities = optimal_state.probabilities_dict()
+    results["quantum"]["probabilities"] = probabilities
+
 
 
 def _x0_parameters(num_params) -> np.ndarray:
@@ -234,37 +245,12 @@ def _x0_parameters(num_params) -> np.ndarray:
     return params
 
 
-def _pretty_result(result: OptimizeResult) -> str:
-    """Format the optimization result for logging.
-
-    Args:
-        result: The optimization result from scipy.optimize.minimize.
-
-    Returns:
-        A formatted string summarizing the optimization outcome.
-    """
-    return (
-        f"Success: {result.success},\n"
-        f"Final Cost: {result.fun:.4f},\n"
-        f"Optimal Parameters: {result.x}"
-    )
-
-
-def _plot_results():
-    """Plot the optimization history of the objective function values."""
-    plt.figure(figsize=(10, 6))
-    plt.plot(OBJECTIVE_FUNC_VALUES, marker="o")
-    plt.title("Objective Function Value During Optimization")
-    plt.xlabel("Evaluation Number")
-    plt.ylabel("Estimated Cost Function Value")
-    plt.grid()
-    plt.show()
-
-
 def _json_default(value):
     """Convert common non-JSON types in experiment results to plain Python objects."""
     if is_dataclass(value):
         return asdict(value)
+    if isinstance(value, complex):
+        return {"real": value.real, "imag": value.imag}
     if isinstance(value, np.ndarray):
         return value.tolist()
     if isinstance(value, np.generic):
@@ -272,6 +258,32 @@ def _json_default(value):
 
     raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")
 
+def _qiskit_bits_inversion(probabilities, sort_keys: bool = True):
+    """Invert Qiskit bitstring keys from q_{n-1}...q_0 to x_0...x_{n-1}.
+
+    If a dict mapping bitstrings->values is provided, the mapping is
+    updated in-place so keys become their reversed bitstrings and the same
+    values are preserved. By default the resulting mapping is reordered so
+    keys are sorted lexicographically. If a list of keys is provided, a new
+    list of reversed (and optionally sorted) keys is returned.
+    """
+    # In-place dict transformation (preferred for keeping references)
+    if isinstance(probabilities, dict):
+        new = {key[::-1]: value for key, value in probabilities.items()}
+        if sort_keys:
+            ordered = dict(sorted(new.items(), key=lambda kv: kv[0]))
+        else:
+            ordered = new
+        probabilities.clear()
+        probabilities.update(ordered)
+        return probabilities
+
+    # Backwards-compatible behavior for lists of keys
+    if isinstance(probabilities, list):
+        out = [key[::-1] for key in probabilities]
+        return sorted(out) if sort_keys else out
+
+    raise TypeError("_qiskit_bits_inversion expects a dict or list of strings")
 
 def _save_results(results: dict):
     """Save the results dictionary to a JSON file.
@@ -286,11 +298,60 @@ def _save_results(results: dict):
     timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     if not Path("results").exists():
         Path("results").mkdir()
+    result_dirname = f"knapsack_{timestamp}"
+    Path(f"results/{result_dirname}").mkdir()
     filename = f"knapsack_results_{timestamp}.json"
-    with open(f"results/{filename}", "w") as f:
+    with open(f"results/{result_dirname}/{filename}", "w") as f:
         json.dump(results, f, indent=4, default=_json_default)
-    logger.info(f"Results saved to results/{filename}")
+    logger.info(f"Results saved to results/{result_dirname}/{filename}")
 
+    def _plot_optimization_curve(objective_log: list[dict[str, float]]):
+        """Plot the optimization history of the objective function values and saves the figure."""
+        plt.figure(figsize=(10, 6))
+        plt.plot([log["estimated_cost"] for log in objective_log],)
+        plt.title("Optimization iterations")
+        plt.xlabel("Iteration")
+        plt.ylabel("Estimated Cost")
+        plt.grid()
+        plot_filename = f"results/{result_dirname}/optimization_history_{timestamp}.png"
+        plt.savefig(plot_filename, dpi=150)
+        logger.info(f"Optimization history plot saved to {plot_filename}")
+    
+    def _plot_distribution(probabilities: dict[str, float]):
+        """Plot the distribution of solution probabilities and saves the figure."""
+        plt.figure(figsize=(10, 6))
+        plt.bar(probabilities.keys(), probabilities.values()) # type: ignore
+        plt.title("Distribution of probabilities for optimal parameters")
+        plt.xlabel("Bitstring")
+        plt.ylabel("Probability")
+        plt.xticks(rotation=90)
+        plt.tight_layout()
+        plot_filename = f"results/{result_dirname}/solution_probabilities_{timestamp}.png"
+        plt.savefig(plot_filename, dpi=150)
+        logger.info(f"Solution probabilities plot saved to {plot_filename}")
+
+
+    _plot_optimization_curve(objective_log=results["quantum"]["optimization_log"].values())
+    _plot_distribution(probabilities=results["quantum"]["probabilities"])
+
+def _aggregate_probabilities(probabilities: dict[str, float], bits_labels: list[str]) -> dict[str, float]:
+    """Aggregate probabilities of bitstrings that correspond to the same item selection.
+
+    This function takes a dictionary of bitstring probabilities and a list of bit labels, and aggregates the probabilities of bitstrings that correspond to the same selection of items (ignoring slack variables). The resulting dictionary maps item selection bitstrings to their aggregated probabilities.
+
+    Args:
+        probabilities: A dictionary mapping bitstrings (e.g., '0011') to their probabilities.
+        bits_labels: A list of bit labels corresponding to the qubits (e.g., ['x0', 'x1', 's0', 's1']).
+
+    Returns:
+        A dictionary mapping item selection bitstrings (e.g., '00', '01', '10', '11') to their aggregated probabilities.
+    """
+    item_bits_indices = [i for i, label in enumerate(bits_labels) if label.startswith('x')]
+    aggregated = {}
+    for bitstring, prob in probabilities.items():
+        item_selection = ''.join(bitstring[i] for i in item_bits_indices)
+        aggregated[item_selection] = aggregated.get(item_selection, 0) + prob
+    return aggregated
 
 def process_result(optimization_result: OptimizeResult, results: dict):
     """Process the optimization result and update the results dictionary.
@@ -301,7 +362,13 @@ def process_result(optimization_result: OptimizeResult, results: dict):
     """
     results["quantum"]["final_cost"] = optimization_result.fun
     results["quantum"]["optimal_parameters"] = optimization_result.x.tolist()
+    results["quantum"]["probabilities"] = _qiskit_bits_inversion(results["quantum"]["probabilities"]) # type: ignore
+    results["quantum"]["aggregated_probabilities"] = _aggregate_probabilities(results["quantum"]["probabilities"], results["quantum"]["bits_labels"])
+    results["quantum"]["aggregated_solution"] = max(results["quantum"]["aggregated_probabilities"], key=results["quantum"]["aggregated_probabilities"].get)
+    results["quantum"]["unique_solution"] = max(results["quantum"]["probabilities"], key=results["quantum"]["probabilities"].get)
+
     _save_results(results)
+    
 
 
 def knapsack_solver(args):
@@ -311,12 +378,13 @@ def knapsack_solver(args):
     Ising Hamiltonian using :func:`map_hamiltonian`, and prints the resulting
     operator. It is intended for quick local demonstrations and testing.
     """
+    global SEED 
     SEED = args.seed
 
     knapsack_instance = KnapsackInstance(
-        values=[8, 5, 6, 9],
-        weights=[4, 3, 5, 6],
-        capacity=10,
+        values =  [8, 5, 3, 10],
+        weights = [4, 3, 1, 7],
+        capacity = 8,
     )
 
     results = {
@@ -326,7 +394,7 @@ def knapsack_solver(args):
             "max_iterations": args.iterations,
             "qaoa_layers": args.qaoa_layers,
             "use_reference_state": args.use_reference_state,
-            "penalty_scaling": args.penalty_scaling,
+            "penalty_scaling": args.penalty_scaling if args.penalty_scaling is not None else sum(knapsack_instance.values),
             "knapsack_instance": asdict(knapsack_instance),
         },
         "classical": {
@@ -334,9 +402,15 @@ def knapsack_solver(args):
             "value": None,
         },
         "quantum": {
-            "solution": None,
+            "offset": None,
             "final_cost": None,
+            "aggregated_solution": None,
+            "unique_solution": None,
             "optimal_parameters": None,
+            "bits_labels": None,
+            "probabilities": None,
+            "aggregated_probabilities": None,
+            "hamiltonian": None,
             "optimization_log": {},
         },
     }
@@ -350,19 +424,62 @@ def knapsack_solver(args):
         knapsack_instance,
         penalty_factor=args.penalty_scaling,
     )
+    results["quantum"]["hamiltonian"] = hamiltonian.to_list()
+    results["quantum"]["offset"] = offset
     logger.info(f"Mapped Hamiltonian:\n{hamiltonian}\nOffset: {offset}")
     p_state = None
 
     if args.use_reference_state:
-        p_state = pstate(knapsack_instance)
+        p_state = pstate(knapsack_instance, hamiltonian)
     ansatz = QAOAAnsatz(hamiltonian, reps=args.qaoa_layers, initial_state=p_state)
 
     logger.info(f"Number of qubits: {ansatz.num_qubits}")
     logger.info(f"Initial parameters: {ansatz.parameters}")
 
+    item_bits = [f"x{i}" for i in range(len(knapsack_instance.values))]
+    slack_bits = [f"s{i}" for i in range(ansatz.num_qubits - len(knapsack_instance.values))]
+    all_bits = item_bits + slack_bits
+    results["quantum"]["bits_labels"] = all_bits
+
     estimator = StatevectorEstimator(seed=SEED)
 
     initial_params = _x0_parameters(ansatz.num_parameters)
+
+
+    def cost_function_estimator(
+        params,
+        ansatz: QuantumCircuit,
+        hamiltonian: SparsePauliOp,
+        estimator: BaseEstimatorV2,
+    ) -> float:
+        """Estimate the cost function value for given parameters.
+
+        This helper function takes a parameter vector, constructs the corresponding
+        quantum state using the provided ansatz, and estimates the expectation
+        value of the cost Hamiltonian using the given estimator.
+
+        Args:
+            params: Parameter vector for the ansatz.
+            ansatz: The QAOA ansatz circuit.
+            hamiltonian: The cost Hamiltonian as a SparsePauliOp.
+            estimator: A Qiskit Estimator instance for evaluating expectation values.
+
+        Returns:
+            The estimated cost function value as a float.
+        """
+        pub = (ansatz, [hamiltonian], [params])
+
+        result = estimator.run(pubs=[pub]).result()
+        energy = result[0].data.evs
+
+        num_evaluations = len(results["quantum"]["optimization_log"]) + 1
+        results["quantum"]["optimization_log"][num_evaluations] = {
+            "parameters": params.tolist(),
+            "estimated_cost": energy,
+        }
+        logger.info(f"Evaluation {num_evaluations}: Parameters: {params}, Estimated Cost: {energy}")
+
+        return energy
 
     optimization_result = minimize(
         cost_function_estimator,
@@ -371,8 +488,9 @@ def knapsack_solver(args):
         method=args.optimizer,
         options={"maxiter": args.iterations, "disp": True},
     )
+    decode_optimization_result(optimization_result, ansatz, hamiltonian, estimator, results)
+
     process_result(optimization_result, results)
-    _plot_results()
 
 
 if __name__ == "__main__":
