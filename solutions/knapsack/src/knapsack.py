@@ -316,7 +316,7 @@ def _save_results(results: dict):
         plt.plot(
             [log["estimated_cost"] for log in objective_log],
         )
-        plt.title("Optimization iterations")
+        plt.title(f"Optimization iterations (offset={results['quantum']['offset']:.2f})")
         plt.xlabel("Iteration")
         plt.ylabel("Estimated Cost")
         plt.grid()
