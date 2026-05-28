@@ -9,8 +9,7 @@ from ham_sdk_conversion import map_pl_hamiltonian_to_qiskit
 import pennylane as qml
 import pprint as pp
 import logging
-
-SEED = 67
+from argparse import ArgumentParser
 
 _PACKAGE_LOGGER_NAME = __package__ or __name__
 _LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
@@ -53,11 +52,15 @@ def classical_diagonalization(hamiltonian: SparsePauliOp) -> float:
 
     return ground_state_energy
 
-def vqe_loop(input_hamiltonian: SparsePauliOp) -> OptimizeResult:
+def vqe_loop(input_hamiltonian: SparsePauliOp, optimizer: str, iterations: int, ansatz_layers: int, seed: int) -> OptimizeResult:
     """Run a VQE optimization using only the most basic Qiskit components.
 
     Args:
         input_hamiltonian: Hamiltonian operator to minimize.
+        optimizer: Optimizer to use for parameter optimization.
+        iterations: Number of iterations for the optimizer.
+        ansatz_layers: Number of ansatz layers (reps).
+        seed: Random seed for reproducibility.
 
     Returns:
         scipy.optimize.OptimizeResult: Optimization result returned by ``minimize``.
@@ -72,7 +75,7 @@ def vqe_loop(input_hamiltonian: SparsePauliOp) -> OptimizeResult:
         num_qubits = input_hamiltonian.num_qubits, # type: ignore
         rotation_blocks = ["rx", "rz"],
         entanglement_blocks = ["cx"],
-        reps = 1,
+        reps = ansatz_layers,
         entanglement = "linear",
     )
 
@@ -80,7 +83,7 @@ def vqe_loop(input_hamiltonian: SparsePauliOp) -> OptimizeResult:
     hamiltonian = input_hamiltonian
 
     # Set up the estimator
-    estimator = StatevectorEstimator(seed=SEED)
+    estimator = StatevectorEstimator(seed=seed)
 
     # Define the cost function for optimization
     def cost_function(
@@ -99,21 +102,24 @@ def vqe_loop(input_hamiltonian: SparsePauliOp) -> OptimizeResult:
         return energy
 
     # Run the optimization
-    initial_params = np.random.RandomState(seed=SEED).rand(ansatz.num_parameters)  # type: ignore
+    initial_params = np.random.RandomState(seed=seed).rand(ansatz.num_parameters)  # type: ignore
 
     optimization_result = minimize(
         cost_function,
         x0=initial_params,
         args=(ansatz, hamiltonian, estimator),
-        method="COBYLA",
-        options={"maxiter": 150},
+        method=optimizer,
+        options={"maxiter": iterations},
         callback=lambda xk: logger.debug(f"Current parameters: {xk}, Current energy: {cost_function(xk)}"),
     )
 
     return optimization_result
 
-def hydroxide_solver():
+def hydroxide_solver(args):
     """Run the VQE optimization for the hydroxide ion (OH-).
+
+    Args:
+        args: Command-line arguments containing optimizer settings.
 
     Returns:
         scipy.optimize.OptimizeResult: Optimization result returned by ``minimize``.
@@ -126,11 +132,38 @@ def hydroxide_solver():
     logger.info(f"Classical diagonalization energy: {classical_diagonalization(hamiltonian)}")
 
     # Run the VQE optimization
-    result = vqe_loop(hamiltonian)
+    result = vqe_loop(hamiltonian, optimizer=args.optimizer, iterations=args.iterations, ansatz_layers=args.ansatz_layers, seed=args.seed)
 
     logger.info(f"VQE optimization result: {result}")
 
 
 
 if __name__ == "__main__":
-    hydroxide_solver()
+    # Parser for command-line arguments
+    parser = ArgumentParser(description="Run VQE optimization for the hydroxide ion (OH-).")
+    parser.add_argument(
+        "--optimizer",
+        choices=["COBYLA", "SLSQP", "ADAM"],
+        default="COBYLA",
+        help="Optimizer to use for parameter optimization",
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=100,
+        help="Number of iterations for the optimizer",
+    )
+    parser.add_argument(
+        "--ansatz-layers",
+        type=int,
+        default=1,
+        help="Number of ansatz layers (reps)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=67,
+        help="Random seed for reproducibility",
+    )
+
+    hydroxide_solver(args=parser.parse_args())
