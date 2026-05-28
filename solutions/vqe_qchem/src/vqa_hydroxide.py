@@ -6,6 +6,7 @@ from qiskit.quantum_info import SparsePauliOp
 from qiskit.primitives import StatevectorEstimator
 from scipy.optimize import minimize, OptimizeResult
 from ham_sdk_conversion import map_pl_hamiltonian_to_qiskit
+import plotting as plot
 import pennylane as qml
 import pprint as pp
 import logging
@@ -17,7 +18,7 @@ _LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
 
 def _configure_package_logger() -> logging.Logger:
     package_logger = logging.getLogger(_PACKAGE_LOGGER_NAME)
-    package_logger.setLevel(logging.DEBUG)
+    package_logger.setLevel(logging.INFO)
 
     if not package_logger.handlers:
         handler = logging.StreamHandler()
@@ -98,7 +99,11 @@ def vqe_loop(input_hamiltonian: SparsePauliOp, optimizer: str, iterations: int, 
             pubs=[pub_estimate],
         ).result()
         energy = result[0].data.evs[0]
-
+        num_evaluations = len(plot.RESULTS_DICT["quantum"]["optimization_log"]) + 1
+        plot.RESULTS_DICT["quantum"]["optimization_log"][num_evaluations] = {
+            "parameters": params.tolist(),
+            "estimated_cost": energy,
+        }
         return energy
 
     # Run the optimization
@@ -110,7 +115,7 @@ def vqe_loop(input_hamiltonian: SparsePauliOp, optimizer: str, iterations: int, 
         args=(ansatz, hamiltonian, estimator),
         method=optimizer,
         options={"maxiter": iterations},
-        callback=lambda xk: logger.debug(f"Current parameters: {xk}, Current energy: {cost_function(xk)}"),
+        callback=lambda xk: logger.info(f"Current parameters: {xk}, Current energy: {cost_function(xk)}"),
     )
 
     return optimization_result
@@ -126,15 +131,21 @@ def hydroxide_solver(args):
     """
     hydroxide_dataset = qml.data.load("qchem", molname="OH-", bondlength=0.964, basis="STO-3G")
 
-    logger.info(f"Tapered Hamiltonian: {hydroxide_dataset[0].tapered_hamiltonian}")
+    logger.debug(f"Tapered Hamiltonian: {hydroxide_dataset[0].tapered_hamiltonian}")
     hamiltonian = map_pl_hamiltonian_to_qiskit(hydroxide_dataset[0].tapered_hamiltonian)
+    plot.RESULTS_DICT["quantum"]["hamiltonian"] = hamiltonian.to_list()
 
-    logger.info(f"Classical diagonalization energy: {classical_diagonalization(hamiltonian)}")
+    classical_energy = classical_diagonalization(hamiltonian)
+    plot.RESULTS_DICT["classical"]["value"] = classical_energy
+
+    logger.info(f"Classical diagonalization energy: {classical_energy:.6f} Hartree")
 
     # Run the VQE optimization
-    result = vqe_loop(hamiltonian, optimizer=args.optimizer, iterations=args.iterations, ansatz_layers=args.ansatz_layers, seed=args.seed)
+    results = vqe_loop(hamiltonian, optimizer=args.optimizer, iterations=args.iter, ansatz_layers=args.ansatz_layers, seed=args.seed)
 
-    logger.info(f"VQE optimization result: {result}")
+    logger.info(f"VQE optimization result: {results}")
+
+    plot.process_result(results, plot.RESULTS_DICT)
 
 
 
@@ -148,7 +159,7 @@ if __name__ == "__main__":
         help="Optimizer to use for parameter optimization",
     )
     parser.add_argument(
-        "--iterations",
+        "--iter",
         type=int,
         default=100,
         help="Number of iterations for the optimizer",
@@ -165,5 +176,12 @@ if __name__ == "__main__":
         default=67,
         help="Random seed for reproducibility",
     )
+    args = parser.parse_args()
 
-    hydroxide_solver(args=parser.parse_args())
+    # save parameters in results dict
+    plot.RESULTS_DICT["metadata"]["seed"] = args.seed
+    plot.RESULTS_DICT["metadata"]["optimizer"] = args.optimizer
+    plot.RESULTS_DICT["metadata"]["max_iterations"] = args.iter
+    plot.RESULTS_DICT["metadata"]["qaoa_layers"] = args.ansatz_layers
+
+    hydroxide_solver(args=args)
